@@ -117,8 +117,10 @@ def run_scheduler(rid: str) -> None:
         with connect() as c:
             row=c.execute("SELECT attempts,max_attempts FROM tasks WHERE run_id=? AND task_id=?",(rid,t["id"])).fetchone()
             if failed and row["attempts"] < row["max_attempts"]:
-                c.execute("UPDATE tasks SET status='RETRYING',error=?,next_run_at=?,updated_at=? WHERE run_id=? AND task_id=?",("Injected transient failure",time.time()+0.45,now(),rid,t["id"]))
-                event(c,rid,"TASK_RETRYING",f"{t['name']} failed on attempt {t['attempt']}; retry scheduled.",t["id"])
+                # Exponential retry backoff: 0.3s, 0.6s, 1.2s, capped at 2.4s for this demo.
+                delay_seconds = min(0.3 * (2 ** max(0, row["attempts"] - 1)), 2.4)
+                c.execute("UPDATE tasks SET status='RETRYING',error=?,next_run_at=?,updated_at=? WHERE run_id=? AND task_id=?",("Injected transient failure",time.time()+delay_seconds,now(),rid,t["id"]))
+                event(c,rid,"TASK_RETRYING",f"{t['name']} failed on attempt {t['attempt']}; retry scheduled with exponential backoff ({delay_seconds:.2f}s).",t["id"])
             elif failed:
                 error="Injected poison-task failure; retry limit exhausted"
                 c.execute("UPDATE tasks SET status='DEAD_LETTERED',error=?,next_run_at=NULL,updated_at=? WHERE run_id=? AND task_id=?",(error,now(),rid,t["id"]))
