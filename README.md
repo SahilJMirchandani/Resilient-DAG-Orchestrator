@@ -8,7 +8,9 @@
 - Dependency-aware scheduling with a bounded concurrent worker pool
 - Task states including `PENDING`, `READY`, `RUNNING`, `RETRYING`, `SUCCEEDED`, `DEAD_LETTERED`, and `BLOCKED`
 - SQLite state store, event history, task-output checkpoints, and dead-letter records
-- Interactive graph, task inspector, metrics, event timeline, and custom-DAG JSON editor
+- Interactive graph, task inspector, retry/checkpoint metrics, event timeline, and custom-DAG JSON editor
+- Fault-injection rehearsals for worker-crash reclaim, duplicate completion/idempotency, and persisted-state replay audit
+- Per-run elapsed time and completed-task throughput, with recovery-window measurement after manual recovery
 - FastAPI endpoints and interactive docs at `/docs`
 
 ## Run locally
@@ -30,7 +32,10 @@ Open <http://127.0.0.1:8000>. On Windows, you can also use `run_local.bat`.
 1. **Happy path:** all six tasks succeed; `enrich` and `score` are independent branches and can execute concurrently.
 2. **Transient failure:** `enrich` fails once, retries, and eventually succeeds.
 3. **Poison task:** `score` exhausts its retry budget; the task is dead-lettered and downstream work is blocked. Select the failed task and trigger **Recover task & downstream**.
-4. **Custom DAG:** submit your own graph as JSON; a cyclic graph or missing dependency is rejected.
+4. **Worker crash rehearsal:** inject a simulated worker crash, then observe lease-expiry-style reclaim and a successful retry.
+5. **Duplicate-delivery rehearsal:** observe a simulated duplicate completion and the idempotency guard; the demo keeps one checkpoint for the task.
+6. **Control-plane replay audit:** emit a simulated restart event and inspect how many successful tasks/checkpoints exist in the state store. This is an audit rehearsal, not an actual process restart.
+7. **Custom DAG:** submit your own graph as JSON; a cyclic graph or missing dependency is rejected.
 
 ## API quick reference
 
@@ -64,6 +69,10 @@ The root-level `render.yaml` configures a single Python web service. In Render, 
 | Completion event feedback | Worker futures processed by the scheduler |
 | Dead-letter queue | SQLite `dead_letters` table |
 | Health monitor / worker leases | Not implemented as an independent service |
+
+## Fault-injection and metric interpretation
+
+The worker-crash experiment uses an injected event and retry delay to model lease-expiry reclamation; it does not kill an operating-system worker. The duplicate-delivery experiment emits an injected duplicate-completion event and idempotency-guard event; it does not publish a second broker message. The control-plane replay experiment emits a simulated restart marker and audits existing persisted task/checkpoint counts; it does not restart the running process or reconstruct state from a separate WAL. Elapsed time and task throughput are measured within this single service. Recovery window is only populated after the manual recovery action.
 
 ## Scope and limitations
 
