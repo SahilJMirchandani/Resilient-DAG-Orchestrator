@@ -151,7 +151,12 @@ def run_scheduler(rid: str) -> None:
                 event(c,rid,"TASK_SUCCEEDED",f"{t['name']} succeeded on attempt {t['attempt']}.",t["id"])
                 if t["fail_mode"] == "duplicate_once" and t["attempt"] == 1:
                     event(c,rid,"DUPLICATE_DELIVERY_SIMULATED",f"A duplicate completion for {t['name']} was injected after the first durable result.",t["id"])
-                    event(c,rid,"IDEMPOTENT_DUPLICATE_IGNORED",f"Idempotency key {rid}:{t['id']} prevents a second checkpoint or second state transition.",t["id"])
+                    persisted = c.execute("SELECT status,idempotency_key FROM tasks WHERE run_id=? AND task_id=?", (rid,t["id"])).fetchone()
+                    checkpoint_count = c.execute("SELECT COUNT(*) AS n FROM checkpoints WHERE run_id=? AND task_id=?", (rid,t["id"])).fetchone()["n"]
+                    if persisted and persisted["status"] == "SUCCEEDED" and persisted["idempotency_key"] == f"{rid}:{t['id']}" and checkpoint_count == 1:
+                        event(c,rid,"IDEMPOTENT_DUPLICATE_IGNORED",f"Persisted success state and idempotency key {persisted['idempotency_key']} already exist; duplicate completion is ignored.",t["id"])
+                    else:
+                        event(c,rid,"IDEMPOTENCY_GUARD_WARNING",f"Duplicate completion for {t['name']} did not match the expected persisted state.",t["id"])
                 if t["fail_mode"] == "replay_once" and t["attempt"] == 1:
                     event(c,rid,"CONTROL_PLANE_RESTART_SIMULATED","Restart/replay rehearsal: inspect persisted task state and checkpoints; this does not kill or restart the real process.")
                     persisted = c.execute("SELECT COUNT(*) AS n FROM checkpoints WHERE run_id=?", (rid,)).fetchone()["n"]
