@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json, os, sqlite3, threading, time, uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,13 +19,19 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
-def connect() -> sqlite3.Connection:
+@contextmanager
+def connect():
+    """Yield a configured SQLite connection and always close it after use."""
     DB.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB, timeout=15, check_same_thread=False)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA foreign_keys=ON")
-    c.execute("PRAGMA busy_timeout=15000")
-    return c
+    try:
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA foreign_keys=ON")
+        c.execute("PRAGMA busy_timeout=15000")
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def init_db() -> None:
@@ -49,6 +55,8 @@ def validate(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         raise HTTPException(400, "A workflow must contain between 1 and 30 tasks.")
     result, ids = [], set()
     for i, raw in enumerate(tasks, 1):
+        if not isinstance(raw, dict):
+            raise HTTPException(400, f"Task {i}: each task must be a JSON object.")
         tid = str(raw.get("id", "")).strip(); name = str(raw.get("name", tid)).strip()
         deps = raw.get("dependencies", []); mode = raw.get("fail_mode", "none")
         try: attempts, duration = int(raw.get("max_attempts", 3)), int(raw.get("duration_ms", 450))
