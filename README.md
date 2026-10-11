@@ -45,6 +45,8 @@ Open <http://127.0.0.1:8000>. On Windows, you can also use `run_local.bat`.
 | POST | `/api/runs` | Submit a custom DAG |
 | POST | `/api/runs/{run_id}/tasks/{task_id}/retry` | Recover failed task and downstream work |
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/SahilJMirchandani/Resilient-DAG-Orchestrator)
+
 ## Deploy on Render
 
 The root-level `render.yaml` configures a single Python web service. In Render, choose **New → Blueprint**, connect this public repository, review the service configuration, and deploy it. See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for health checks and smoke tests.
