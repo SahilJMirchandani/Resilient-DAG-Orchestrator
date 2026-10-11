@@ -46,7 +46,10 @@ Open <http://127.0.0.1:8000>. On Windows, you can also use `run_local.bat`.
 | POST | `/api/runs/demo?scenario=success` | Start success experiment |
 | POST | `/api/runs/demo?scenario=retry` | Start retry experiment |
 | POST | `/api/runs/demo?scenario=poison` | Start dead-letter experiment |
-| GET | `/api/runs/{run_id}` | Workflow state, tasks, events, and checkpoints |
+| POST | `/api/runs/demo?scenario=worker_crash` | Worker crash and lease-reclaim rehearsal |
+| POST | `/api/runs/demo?scenario=duplicate` | Duplicate-delivery/idempotency rehearsal |
+| POST | `/api/runs/demo?scenario=replay` | Simulated restart and checkpoint audit |
+| GET | `/api/runs/{run_id}` | Workflow state, tasks, events, checkpoints, and run metrics |
 | POST | `/api/runs` | Submit a custom DAG |
 | POST | `/api/runs/{run_id}/tasks/{task_id}/retry` | Recover failed task and downstream work |
 
