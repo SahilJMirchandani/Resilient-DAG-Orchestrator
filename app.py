@@ -232,7 +232,7 @@ def recover(run_id: str, task_id: str, background: BackgroundTasks):
                 if t["task_id"] not in reset and set(json.loads(t["dependencies_json"])) & reset:
                     reset.add(t["task_id"]); changed=True
         for tid in reset:
-            c.execute("UPDATE tasks SET status='PENDING',fail_mode='none',next_run_at=NULL,error=NULL,output_json=NULL,updated_at=? WHERE run_id=? AND task_id=?",(now(),run_id,tid))
+            c.execute("UPDATE tasks SET status='PENDING',attempts=0,fail_mode='none',next_run_at=NULL,error=NULL,output_json=NULL,updated_at=? WHERE run_id=? AND task_id=?",(now(),run_id,tid))
             c.execute("DELETE FROM checkpoints WHERE run_id=? AND task_id=?",(run_id,tid))
             event(c,run_id,"MANUAL_RECOVERY",f"Operator recovery reset {tid}; downstream tasks will be rescheduled.",tid)
         c.execute("UPDATE runs SET status='QUEUED',updated_at=? WHERE id=?",(now(),run_id))
