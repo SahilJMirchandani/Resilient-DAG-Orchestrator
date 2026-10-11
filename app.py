@@ -68,7 +68,7 @@ def validate(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if len(deps) != len(set(deps)) or tid in deps: raise HTTPException(400, f"Task {tid}: duplicate or self dependency.")
         if not 1 <= attempts <= 5: raise HTTPException(400, f"Task {tid}: max_attempts must be 1–5.")
         if not 100 <= duration <= 1500: raise HTTPException(400, f"Task {tid}: duration_ms must be 100–1500.")
-        if mode not in {"none", "fail_once", "always_fail"}: raise HTTPException(400, f"Task {tid}: invalid fail_mode.")
+        if mode not in {"none", "fail_once", "always_fail", "crash_once", "duplicate_once", "replay_once"}: raise HTTPException(400, f"Task {tid}: invalid fail_mode.")
         ids.add(tid); result.append({"id":tid,"name":name,"dependencies":deps,"max_attempts":attempts,"fail_mode":mode,"duration_ms":duration})
     for t in result:
         missing = set(t["dependencies"]) - ids
@@ -89,7 +89,7 @@ _validate_dag = validate
 
 
 def demo_tasks(scenario: str) -> list[dict[str, Any]]:
-    if scenario not in {"success", "retry", "poison"}: raise HTTPException(400, "Choose success, retry, or poison.")
+    if scenario not in {"success", "retry", "poison", "worker_crash", "duplicate", "replay"}: raise HTTPException(400, "Choose success, retry, poison, worker_crash, duplicate, or replay.")
     ts = [
       {"id":"extract","name":"Extract source data","dependencies":[],"duration_ms":650},
       {"id":"validate","name":"Validate records","dependencies":["extract"],"duration_ms":550},
@@ -101,6 +101,9 @@ def demo_tasks(scenario: str) -> list[dict[str, Any]]:
     for t in ts: t.update(max_attempts=3, fail_mode="none")
     if scenario == "retry": next(t for t in ts if t["id"]=="enrich")["fail_mode"] = "fail_once"
     if scenario == "poison": next(t for t in ts if t["id"]=="score")["fail_mode"] = "always_fail"
+    if scenario == "worker_crash": next(t for t in ts if t["id"]=="enrich")["fail_mode"] = "crash_once"
+    if scenario == "duplicate": next(t for t in ts if t["id"]=="score")["fail_mode"] = "duplicate_once"
+    if scenario == "replay": next(t for t in ts if t["id"]=="validate")["fail_mode"] = "replay_once"
     return ts
 
 
@@ -121,10 +124,16 @@ def run_scheduler(rid: str) -> None:
         c.execute("UPDATE runs SET status='RUNNING',updated_at=? WHERE id=?",(now(),rid)); event(c,rid,"RUN_STATUS_CHANGED","Workflow status changed to RUNNING.")
     def execute(t: dict[str, Any]) -> None:
         time.sleep(t["duration_ms"]/1000.0)
+        crashed = t["fail_mode"] == "crash_once" and t["attempt"] == 1
         failed = t["fail_mode"] == "always_fail" or (t["fail_mode"] == "fail_once" and t["attempt"] == 1)
         with connect() as c:
             row=c.execute("SELECT attempts,max_attempts FROM tasks WHERE run_id=? AND task_id=?",(rid,t["id"])).fetchone()
-            if failed and row["attempts"] < row["max_attempts"]:
+            if crashed:
+                delay_seconds = min(0.3 * (2 ** max(0, row["attempts"] - 1)), 2.4)
+                c.execute("UPDATE tasks SET status='RETRYING',error=?,next_run_at=?,updated_at=? WHERE run_id=? AND task_id=?",("Simulated worker crash; waiting for lease expiry",time.time()+delay_seconds,now(),rid,t["id"]))
+                event(c,rid,"WORKER_CRASH_SIMULATED",f"Worker running {t['name']} crashed in the demonstration; lease expiry will permit reclaim.",t["id"])
+                event(c,rid,"TASK_RETRYING",f"{t['name']} will be reclaimed after simulated lease expiry ({delay_seconds:.2f}s).",t["id"])
+            elif failed and row["attempts"] < row["max_attempts"]:
                 # Exponential retry backoff: 0.3s, 0.6s, 1.2s, capped at 2.4s for this demo.
                 delay_seconds = min(0.3 * (2 ** max(0, row["attempts"] - 1)), 2.4)
                 c.execute("UPDATE tasks SET status='RETRYING',error=?,next_run_at=?,updated_at=? WHERE run_id=? AND task_id=?",("Injected transient failure",time.time()+delay_seconds,now(),rid,t["id"]))
@@ -140,6 +149,14 @@ def run_scheduler(rid: str) -> None:
                 c.execute("UPDATE tasks SET status='SUCCEEDED',output_json=?,error=NULL,next_run_at=NULL,updated_at=? WHERE run_id=? AND task_id=?",(json.dumps(output),now(),rid,t["id"]))
                 event(c,rid,"CHECKPOINT_SAVED",f"Durable output checkpoint saved for {t['name']} before completion was committed.",t["id"])
                 event(c,rid,"TASK_SUCCEEDED",f"{t['name']} succeeded on attempt {t['attempt']}.",t["id"])
+                if t["fail_mode"] == "duplicate_once" and t["attempt"] == 1:
+                    event(c,rid,"DUPLICATE_DELIVERY_SIMULATED",f"A duplicate completion for {t['name']} was injected after the first durable result.",t["id"])
+                    event(c,rid,"IDEMPOTENT_DUPLICATE_IGNORED",f"Idempotency key {rid}:{t['id']} prevents a second checkpoint or second state transition.",t["id"])
+                if t["fail_mode"] == "replay_once" and t["attempt"] == 1:
+                    event(c,rid,"CONTROL_PLANE_RESTART_SIMULATED","Restart/replay rehearsal: inspect persisted task state and checkpoints; this does not kill or restart the real process.")
+                    persisted = c.execute("SELECT COUNT(*) AS n FROM checkpoints WHERE run_id=?", (rid,)).fetchone()["n"]
+                    succeeded = c.execute("SELECT COUNT(*) AS n FROM tasks WHERE run_id=? AND status='SUCCEEDED'", (rid,)).fetchone()["n"]
+                    event(c,rid,"STATE_REPLAY_AUDIT",f"Durable-store audit found {succeeded} succeeded task(s) and {persisted} checkpoint(s) available to reconstruct workflow state.")
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = {}
         while True:
@@ -149,7 +166,10 @@ def run_scheduler(rid: str) -> None:
                 for t in rows:
                     if t["status"]=="RETRYING" and (t["next_run_at"] or 0)<=time.time():
                         c.execute("UPDATE tasks SET status='READY',next_run_at=NULL,updated_at=? WHERE run_id=? AND task_id=?",(now(),rid,t["task_id"]))
-                        event(c,rid,"TASK_READY",f"{t['name']} is ready for retry.",t["task_id"]); t["status"]="READY"
+                        reclaimed = t["fail_mode"] == "crash_once" and int(t["attempts"]) == 1
+                        kind = "TASK_RECLAIMED_AFTER_LEASE_EXPIRY" if reclaimed else "TASK_READY"
+                        message = f"{t['name']} reclaimed after simulated lease expiry." if reclaimed else f"{t['name']} is ready for retry."
+                        event(c,rid,kind,message,t["task_id"]); t["status"]="READY"
                 for t in rows:
                     if t["status"] != "PENDING": continue
                     deps=[byid[d]["status"] for d in json.loads(t["dependencies_json"])]
@@ -189,7 +209,18 @@ def snapshot(rid: str) -> dict[str, Any]:
         checkpoints=[dict(r) for r in c.execute("SELECT * FROM checkpoints WHERE run_id=? ORDER BY id",(rid,)).fetchall()]
         dead=[dict(r) for r in c.execute("SELECT * FROM dead_letters WHERE run_id=? ORDER BY id DESC",(rid,)).fetchall()]
     retries=sum(max(0,t["attempts"]-1) for t in tasks)
-    return {"id":run["id"],"name":run["name"],"status":run["status"],"created_at":run["created_at"],"updated_at":run["updated_at"],"tasks":tasks,"events":events,"checkpoints":checkpoints,"dead_letters":dead,"metrics":{"total_tasks":len(tasks),"completed":sum(t["status"]=="SUCCEEDED" for t in tasks),"retries":retries,"attempts":sum(t["attempts"] for t in tasks),"checkpoint_count":len(checkpoints),"dead_lettered":sum(t["status"]=="DEAD_LETTERED" for t in tasks),"blocked":sum(t["status"]=="BLOCKED" for t in tasks),"worker_count":WORKERS}}
+    start_at = datetime.fromisoformat(run["created_at"])
+    terminal = run["status"] in {"SUCCEEDED", "FAILED"}
+    end_at = datetime.fromisoformat(run["updated_at"]) if terminal else datetime.now(timezone.utc)
+    elapsed_ms = max(1, int((end_at - start_at).total_seconds() * 1000))
+    completed_count = sum(t["status"]=="SUCCEEDED" for t in tasks)
+    recovery_events = [e for e in events if e["event_type"] == "MANUAL_RECOVERY"]
+    recovery_ms = None
+    if recovery_events:
+        recovery_start = datetime.fromisoformat(min(recovery_events, key=lambda e: e["created_at"])["created_at"])
+        recovery_ms = max(0, int((end_at - recovery_start).total_seconds() * 1000))
+    throughput = round(completed_count / (elapsed_ms / 1000), 3)
+    return {"id":run["id"],"name":run["name"],"status":run["status"],"created_at":run["created_at"],"updated_at":run["updated_at"],"tasks":tasks,"events":events,"checkpoints":checkpoints,"dead_letters":dead,"metrics":{"total_tasks":len(tasks),"completed":completed_count,"retries":retries,"attempts":sum(t["attempts"] for t in tasks),"checkpoint_count":len(checkpoints),"dead_lettered":sum(t["status"]=="DEAD_LETTERED" for t in tasks),"blocked":sum(t["status"]=="BLOCKED" for t in tasks),"worker_count":WORKERS,"elapsed_ms":elapsed_ms,"throughput_tasks_per_second":throughput,"recovery_time_ms":recovery_ms}}
 
 
 @asynccontextmanager
@@ -215,7 +246,7 @@ def list_runs():
 
 @app.post("/api/runs/demo")
 def demo(background: BackgroundTasks, scenario: str="success"):
-    name={"success":"Happy path workflow","retry":"Transient failure + retry","poison":"Poison task + dead-letter"}.get(scenario,scenario)
+    name={"success":"Happy path workflow","retry":"Transient failure + retry","poison":"Poison task + dead-letter","worker_crash":"Worker crash + lease reclaim (simulation)","duplicate":"Duplicate delivery + idempotency (simulation)","replay":"Control-plane checkpoint replay rehearsal (simulation)"}.get(scenario,scenario)
     rid=create_run(name,demo_tasks(scenario)); background.add_task(run_scheduler,rid); return {"id":rid,"status":"QUEUED"}
 
 @app.post("/api/runs")
