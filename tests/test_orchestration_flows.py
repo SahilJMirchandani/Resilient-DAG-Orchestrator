@@ -72,6 +72,8 @@ class OrchestrationFlowTests(unittest.TestCase):
         recovered = self.client.get(f"/api/runs/{run_id}").json()
         self.assertEqual(recovered["status"], "SUCCEEDED")
         self.assertEqual(recovered["metrics"]["completed"], 6)
+        self.assertIsNotNone(recovered["metrics"]["recovery_time_ms"])
+        self.assertGreaterEqual(recovered["metrics"]["recovery_time_ms"], 0)
 
     def test_worker_crash_is_reclaimed_and_retry_succeeds(self):
         _, state = self.start_demo("worker_crash")
