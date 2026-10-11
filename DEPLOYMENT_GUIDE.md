@@ -23,8 +23,12 @@ Replace `<PUBLIC-URL>` with the URL shown by Render.
 3. From the dashboard, run **Happy path** and check that all six tasks succeed.
 4. Run **Transient failure**; check that `enrich` retries and eventually succeeds.
 5. Run **Poison task**; check that `score` is dead-lettered and downstream tasks are blocked. Select `score` and click **Recover task & downstream**.
-6. Submit a custom DAG, then try a cyclic dependency and confirm that the API rejects it.
-7. Capture journal screenshots only after these checks are complete.
+6. Run **Worker crash**; confirm the event timeline marks the worker crash and subsequent reclaim. This is an injected simulation, not an actual process kill.
+7. Run **Duplicate delivery**; confirm the idempotency-guard event and one checkpoint for the `score` task. This is an injected event rehearsal, not a real broker redelivery.
+8. Run **Checkpoint replay**; confirm the simulated restart marker and state-store audit. It does not restart the actual process.
+9. Check the performance panel for elapsed time and completed-tasks-per-second. Recovery time appears after you recover a dead-lettered task.
+10. Submit a custom DAG, then try a cyclic dependency and confirm that the API rejects it.
+11. Capture journal screenshots only after these checks are complete.
 
 ## Limitations
 
