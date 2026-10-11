@@ -73,6 +73,37 @@ class OrchestrationFlowTests(unittest.TestCase):
         self.assertEqual(recovered["status"], "SUCCEEDED")
         self.assertEqual(recovered["metrics"]["completed"], 6)
 
+    def test_worker_crash_is_reclaimed_and_retry_succeeds(self):
+        _, state = self.start_demo("worker_crash")
+        self.assertEqual(state["status"], "SUCCEEDED")
+        enrich = next(task for task in state["tasks"] if task["task_id"] == "enrich")
+        self.assertEqual(enrich["attempts"], 2)
+        kinds = [event["event_type"] for event in state["events"]]
+        self.assertIn("WORKER_CRASH_SIMULATED", kinds)
+        self.assertIn("TASK_RECLAIMED_AFTER_LEASE_EXPIRY", kinds)
+
+    def test_duplicate_delivery_demo_keeps_single_checkpoint(self):
+        _, state = self.start_demo("duplicate")
+        self.assertEqual(state["status"], "SUCCEEDED")
+        self.assertEqual(state["metrics"]["checkpoint_count"], 6)
+        score_checkpoints = [cp for cp in state["checkpoints"] if cp["task_id"] == "score"]
+        self.assertEqual(len(score_checkpoints), 1)
+        kinds = [event["event_type"] for event in state["events"]]
+        self.assertIn("DUPLICATE_DELIVERY_SIMULATED", kinds)
+        self.assertIn("IDEMPOTENT_DUPLICATE_IGNORED", kinds)
+
+    def test_replay_audit_and_performance_metrics_are_reported(self):
+        _, state = self.start_demo("replay")
+        self.assertEqual(state["status"], "SUCCEEDED")
+        kinds = [event["event_type"] for event in state["events"]]
+        self.assertIn("CONTROL_PLANE_RESTART_SIMULATED", kinds)
+        audit = next(event for event in state["events"] if event["event_type"] == "STATE_REPLAY_AUDIT")
+        self.assertIn("checkpoint", audit["message"])
+        metrics = state["metrics"]
+        self.assertGreater(metrics["elapsed_ms"], 0)
+        self.assertGreater(metrics["throughput_tasks_per_second"], 0)
+        self.assertIsNone(metrics["recovery_time_ms"])
+
     def test_custom_dag_rejects_cycle_as_client_error(self):
         response = self.client.post("/api/runs", json={"name": "bad graph", "tasks": [
             {"id": "a", "dependencies": ["b"]},
