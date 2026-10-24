@@ -1,6 +1,6 @@
-# ORBIT — Resilient DAG Orchestrator
+# ORBIT - Resilient DAG Orchestrator
 
-**ORBIT** is an educational SSD Virtual Lab microproject based on Group 07's *Resilient Distributed DAG Orchestrator* design. It provides an interactive task-dependency graph and lets students inspect normal execution, transient failures and retries, checkpoints, dead-lettering, and manual recovery.
+**ORBIT** is an educational Software System Design Virtual Lab microproject. It provides an interactive task-dependency graph and lets students inspect normal execution, transient failures and retries, checkpoints, dead-lettering, and manual recovery.
 
 ## Features
 
@@ -35,14 +35,14 @@ Open <http://127.0.0.1:8000/virtual-lab> to use the guided experiment page local
 
 The lab is organised into these learning sections:
 
-1. **Aim & learning outcomes** — defines the experiment objective.
-2. **Theory** — explains DAG dependencies, scheduling, retries, checkpoints, dead-lettering, and idempotency.
-3. **Procedure** — provides a beginner-friendly sequence for running the experiments.
-4. **Simulation** — starts supported ORBIT runs and displays the dependency graph, task state, event timeline, and recovery control.
-5. **Observations** — reads the selected run's status, task states, retries, checkpoint counts, and app-reported metrics from the API.
-6. **Self-test** — checks understanding with five multiple-choice questions and feedback.
-7. **Result** — summarises the latest run and its observed values.
-8. **References** — links to Virtual Labs learning examples and the ORBIT implementation.
+1. **Aim & learning outcomes** - defines the experiment objective.
+2. **Theory** - explains DAG dependencies, scheduling, retries, checkpoints, dead-lettering, and idempotency.
+3. **Procedure** - provides a beginner-friendly sequence for running the experiments.
+4. **Simulation** - starts supported ORBIT runs and displays the dependency graph, task state, event timeline, and recovery control.
+5. **Observations** - reads the selected run's status, task states, retries, checkpoint counts, and app-reported metrics from the API.
+6. **Self-test** - checks understanding with five multiple-choice questions and feedback.
+7. **Result** - summarises the latest run and its observed values.
+8. **References** - links to Virtual Labs learning examples and the ORBIT implementation.
 
 **Recommended first run:** read Aim and Theory, follow the Procedure, run **Happy Path**, then compare it with **Transient Failure** and **Poison Task**. In the Poison Task scenario, select the dead-lettered task and choose **Recover task & downstream** to observe recovery.
 
