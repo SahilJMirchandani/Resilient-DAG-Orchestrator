@@ -4,6 +4,8 @@
 
 ## Features
 
+- **Guided Virtual Lab:** a structured, browser-based learning experience covering Aim, Theory, Procedure, Simulation, Observations, Self-test, Result, and References
+- **Live lab route:** [Open the ORBIT Virtual Lab](https://resilient-dag-orchestrator.onrender.com/virtual-lab) (served by the same FastAPI application and backed by the ORBIT API)
 - DAG validation, missing-dependency checks, duplicate-ID checks, and cycle detection
 - Dependency-aware scheduling with a bounded concurrent worker pool
 - Task states including `PENDING`, `READY`, `RUNNING`, `RETRYING`, `SUCCEEDED`, `DEAD_LETTERED`, and `BLOCKED`
@@ -25,7 +27,26 @@ pip install -r requirements.txt
 uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. On Windows, you can also use `run_local.bat`.
+Open <http://127.0.0.1:8000> for the main dashboard. On Windows, you can also use `run_local.bat`.
+
+### Guided Virtual Lab
+
+Open <http://127.0.0.1:8000/virtual-lab> to use the guided experiment page locally, or visit the [deployed ORBIT Virtual Lab](https://resilient-dag-orchestrator.onrender.com/virtual-lab).
+
+The lab is organised into these learning sections:
+
+1. **Aim & learning outcomes** — defines the experiment objective.
+2. **Theory** — explains DAG dependencies, scheduling, retries, checkpoints, dead-lettering, and idempotency.
+3. **Procedure** — provides a beginner-friendly sequence for running the experiments.
+4. **Simulation** — starts supported ORBIT runs and displays the dependency graph, task state, event timeline, and recovery control.
+5. **Observations** — reads the selected run's status, task states, retries, checkpoint counts, and app-reported metrics from the API.
+6. **Self-test** — checks understanding with five multiple-choice questions and feedback.
+7. **Result** — summarises the latest run and its observed values.
+8. **References** — links to Virtual Labs learning examples and the ORBIT implementation.
+
+**Recommended first run:** read Aim and Theory, follow the Procedure, run **Happy Path**, then compare it with **Transient Failure** and **Poison Task**. In the Poison Task scenario, select the dead-lettered task and choose **Recover task & downstream** to observe recovery.
+
+The lab uses the same supported scenario IDs documented below. Worker-crash reclaim, duplicate delivery, and restart/replay are explicitly labelled **educational rehearsals**: they inject events into a single-process application and do not represent actual worker-process termination, a second broker delivery, or a real process restart.
 
 ## Experiments
 
@@ -36,6 +57,17 @@ Open <http://127.0.0.1:8000>. On Windows, you can also use `run_local.bat`.
 5. **Duplicate-delivery rehearsal:** observe a simulated duplicate completion and the idempotency guard; the demo keeps one checkpoint for the task.
 6. **Control-plane replay audit:** emit a simulated restart event and inspect how many successful tasks/checkpoints exist in the state store. This is an audit rehearsal, not an actual process restart.
 7. **Custom DAG:** submit your own graph as JSON; a cyclic graph or missing dependency is rejected.
+
+### Scenario reference
+
+| Scenario | What to observe |
+|---|---|
+| `success` | Dependency order, concurrent independent branches, and saved output checkpoints |
+| `retry` | The `enrich` task fails once, retries, then succeeds |
+| `poison` | The `score` task exhausts retries; downstream tasks block until manual recovery |
+| `worker_crash` | An injected worker-crash event followed by simulated lease-expiry reclaim |
+| `duplicate` | An injected duplicate-completion event and the idempotency guard |
+| `replay` | A simulated restart marker and audit of existing task/checkpoint state |
 
 ## API quick reference
 
