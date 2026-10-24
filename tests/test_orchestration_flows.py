@@ -39,10 +39,17 @@ class OrchestrationFlowTests(unittest.TestCase):
         self.assertEqual(state.status_code, 200, state.text)
         return run_id, state.json()
 
-    def test_health_dashboard_and_api_docs(self):
+    def test_health_dashboard_virtual_lab_and_api_docs(self):
         self.assertEqual(self.client.get("/api/health").json()["status"], "ok")
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get("/docs").status_code, 200)
+
+        lab = self.client.get("/virtual-lab")
+        self.assertEqual(lab.status_code, 200, lab.text)
+        self.assertIn("ORBIT Virtual Lab", lab.text)
+        self.assertIn("Aim & learning outcomes", lab.text)
+        self.assertIn("Simulation workspace", lab.text)
+        self.assertIn("/api/runs/demo", lab.text)
 
     def test_happy_path_completes_all_tasks_and_checkpoints(self):
         _, state = self.start_demo("success")
