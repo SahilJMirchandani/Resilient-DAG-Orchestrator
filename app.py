@@ -239,6 +239,12 @@ app=FastAPI(title="ORBIT — Resilient DAG Orchestrator",version="1.0.0",lifespa
 def home():
     return FileResponse(STATIC / "index.html")
 
+
+@app.get("/virtual-lab")
+def virtual_lab():
+    """Serve the guided SSD Virtual Lab for the ORBIT teaching MVP."""
+    return FileResponse(STATIC / "virtual-lab.html")
+
 @app.get("/api/health")
 def health():
     return {"status":"ok","worker_capacity":WORKERS,"mode":"educational-simulation"}
